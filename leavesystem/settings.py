@@ -42,13 +42,13 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "corsheaders",
     "drf_spectacular",
-
     # Local apps
     "leaves",
     "leavesystem",
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -59,6 +59,9 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "leavesystem.urls"
+
+CORS_ALLOW_ALL_ORIGINS = True
+
 
 TEMPLATES = [
     {
@@ -127,8 +130,6 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-CORS_ALLOW_ALL_ORIGINS = True
-
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -142,3 +143,28 @@ REST_FRAMEWORK = {
 }
 
 AUTH_USER_MODEL = "leaves.Employee"
+
+
+# Logging configuration to trace user activity and API calls
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    # Root logger (all loggers without an explicit config)
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    # App-specific logger for the leaves app where most business logic lives
+    "loggers": {
+        "leaves": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+}

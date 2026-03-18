@@ -12,7 +12,7 @@ from rest_framework_simplejwt.views import (
 
 urlpatterns = [
     # Leave endpoints
-    path('leaves/', LeaveListCreateView.as_view(), name='leave-list'),
+    path('leaves/all/', LeaveListCreateView.as_view(), name='leave-list'),
     path('leaves/<int:pk>/', LeaveDetailView.as_view(), name='leave-detail'),
 
     # Authentication endpoints
