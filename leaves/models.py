@@ -3,6 +3,54 @@ from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from datetime import date
 from django.conf import settings
+from django.contrib.auth.base_user import BaseUserManager
+
+
+class Institution(models.Model):
+    """Model representing an institution in the leave management system.
+    Each institution has a unique name and can have multiple employees associated with it."""
+
+    name = models.CharField(max_length=255, unique=True)
+    location = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
+    
+    class Meta:
+        verbose_name = "Institution"
+        verbose_name_plural = "Institutions"
+        ordering = ["name"]
+
+
+
+class EmailUserManager(BaseUserManager):
+    """Custom user manager to handle user creation with email as the unique identifier."""
+
+    def create_user(self, email, password=None, **extra_fields):
+        """Create and save a regular user with the given email and password."""
+        if not email:
+            raise ValueError("The Email field must be set")
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        """Create and save a superuser with the given email and password."""
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Superuser must have is_superuser=True.")
+
+        return self.create_user(email, password, **extra_fields)
+
+
 
 class Employee(AbstractUser):
     """Model representing an employee in the leave management system.
@@ -14,35 +62,54 @@ class Employee(AbstractUser):
         phone_number: CharField to store the phone number of the employee.
     """
 
-    email = models.EmailField(unique=True)
-    EMPLOYEE_ROLE_CHOICES = [
-        ("STAFF", "Staff"),
-        ("MANAGER", "Manager"),
-        ("HR", "Human Resources"),
-    ]
-    USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["username", "employee_department", "employee_position"]
+    class Role(models.TextChoices):
+        STAFF = "STAFF", "Staff"
+        MANAGER = "MANAGER", "Manager"
+        HR = "HR", "HR"
 
-    employee_department = models.CharField(max_length=100)
-    employee_position = models.CharField(max_length=100)
-    phone_number = models.CharField(max_length=20)
-    employee_role = models.CharField(
-        max_length=20, choices=EMPLOYEE_ROLE_CHOICES, default="STAFF"
-    )
+    username = None 
+    
+    first_name = models.CharField(max_length=30, blank=True, null=True)
+    last_name = models.CharField(max_length=30, blank=True, null=True)
+    email = models.EmailField(unique=True)
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
+    department = models.CharField(max_length=100, blank=True, null=True)
+    position = models.CharField(max_length=100, blank=True, null=True)
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.STAFF)
+    institution = models.ForeignKey(Institution, on_delete=models.CASCADE, related_name="employees", default=None, blank=True, null=True)
+    must_reset_password = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+
+    objects = EmailUserManager()
+
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = ['first_name', 'last_name', 'department', 'position', 'institution', 'role']
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name} ({self.employee_department} - {self.employee_position})"
+        return f"{self.first_name} {self.last_name} ({self.department} - {self.position})"
+    
+    def save(self, *args, **kwargs):
+        """
+        Automatically set is_staff based on role.
+        Only HR and above get Django admin access.
+        """
+        if self.role in [self.Role.HR]:
+            self.is_staff = True
+        else:
+            self.is_staff = False
+        
+        super().save(*args, **kwargs)
 
-class LeavePolicy(models.Model):
-    """Model representing a leave policy in the leave management system.
-    Each leave policy has a unique ID, name, type, start and end dates, reason for the leave, and an optional supporting document."""
+class LeaveType(models.Model):
+    """Model representing a leave type in the leave management system.
+    Each leave type has a unique ID, name, type, start and end dates, reason for the leave, and an optional supporting document."""
     name = models.CharField(max_length=100, unique=True, help_text="e.g Annual Leave, Sick Leave, Family Responsibility Leave, Study Leave")
     max_days = models.PositiveIntegerField(help_text="Maximum number of days allowed for this leave type")
     is_active = models.BooleanField(default=True)
     
     class Meta:
-        verbose_name = "Leave Policy"
-        verbose_name_plural = "Leave Policies"
+        verbose_name = "Leave Type"
+        verbose_name_plural = "Leave Types"
 
     def __str__(self):
         return f"{self.name} - {self.max_days} days"
@@ -50,16 +117,17 @@ class LeavePolicy(models.Model):
 
 
 class Leave(models.Model):
-
-    STATUS_CHOICES = [
-        ("PENDING", "Pending"),
-        ("APPROVED", "Approved"),
-        ("REJECTED", "Rejected")
-    ]
     """Model representing a leave request in the leave management system.
     Each leave request has a unique ID, name, type, start and end dates, reason for the leave, and an optional supporting document."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        APPROVED = "APPROVED", "Approved"
+        REJECTED = "REJECTED", "Rejected"
+
+    employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="leaves")
     leave_type = models.ForeignKey(
-        LeavePolicy, on_delete=models.PROTECT, related_name="leaves"
+        LeaveType, on_delete=models.PROTECT, related_name="leaves"
     )
     start_date = models.DateField()
     end_date = models.DateField()
@@ -67,10 +135,11 @@ class Leave(models.Model):
     supporting_document = models.FileField(
         upload_to="leave_documents/", blank=True, null=True
     )
-    status = models.CharField(max_length=20, default="PENDING", choices=STATUS_CHOICES)
-    employee = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="leaves"
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
     )
+    admin_remarks = models.TextField(blank=True, null=True)
+
 
     class Meta:
         ordering = ["-id"]
@@ -98,3 +167,4 @@ class Leave(models.Model):
             getattr(self.employee, "get_full_name", lambda: "")() or self.employee.email
         )
         return f"{employee_display} - {self.leave_type} from {self.start_date} to {self.end_date}"
+

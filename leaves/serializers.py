@@ -1,298 +1,241 @@
 import logging
 from datetime import date
-
+from .models import Leave, Employee, LeaveType, Institution
+from .utils import calculate_working_days, send_welcome_email
 from rest_framework import serializers
-
-# Import LeavePolicy and the utility function we discussed
-from .models import Leave, Employee, LeavePolicy
-from .utils import calculate_working_days
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_decode
+from django.utils.encoding import force_str
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
 
-class LeavePolicySerializer(serializers.ModelSerializer):
-    """Serializer for Admin/HR to manage dynamic leave types."""
-
+# Serializer for Institution model
+class InstitutionSerializer(serializers.ModelSerializer):
+    employee_count = serializers.SerializerMethodField()
     class Meta:
-        model = LeavePolicy
-        fields = "__all__"
+        model = Institution
+        fields = ["id", "name", "location", "created_at", "is_active", "employee_count"]
+    
+    def get_employee_count(self, obj):
+        return obj.employees.filter(is_active=True).count()
 
-
-class EmployeeNestedSerializer(serializers.ModelSerializer):
-    """Nested serializer for employee data in leave responses."""
-
-    full_name = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Employee
-        fields = ["id", "email", "full_name", "employee_role", "employee_department"]
-
-    def get_full_name(self, obj):
-        """Return the full name of the employee."""
-        return f"{obj.first_name} {obj.last_name}".strip()
-
-
-class LeaveSerializer(serializers.ModelSerializer):
-    employee = EmployeeNestedSerializer(read_only=True)
-
-    class Meta:
-        model = Leave
-        fields = "__all__"
-        # Ensure employee and status are set from the request context/HR, not the client
-        read_only_fields = ["employee", "status"]
-
-    list_display = ("leave_type", "start_date", "end_date", "reason", "status")
-    search_fields = (
-        "leave_type__name",
-        "reason",
-        "status",
-    )  # Updated to search by policy name
-    list_filter = ("start_date", "end_date", "leave_type", "status")
-
-    def validate(self, data):
-        """Custom validation to ensure valid dates, working days, and policy constraints."""
-        start_date = data.get("start_date")
-        end_date = data.get("end_date")
-
-        # Because leave_type is a ForeignKey, DRF resolves this into a LeavePolicy object instance
-        leave_policy = data.get("leave_type")
-
-        logger.debug(
-            "Validating leave for %(employee)s: %(start)s -> %(end)s (%(type)s)",
-            {
-                "employee": getattr(data.get("employee"), "id", None),
-                "start": start_date,
-                "end": end_date,
-                "type": getattr(leave_policy, "name", None),
-            },
-        )
-
-        # 1. Basic Date Logic
-        if start_date and end_date and end_date < start_date:
-            raise serializers.ValidationError(
-                {"end_date": ["End date cannot be before start date."]}
-            )
-
-        if start_date and start_date < date.today():
-            raise serializers.ValidationError(
-                {"start_date": ["Start date cannot be in the past."]}
-            )
-
-        # 2. Dynamic Policy and Working Days Logic
-        if start_date and end_date and leave_policy:
-            requested_days = calculate_working_days(start_date, end_date)
-
-            if requested_days == 0:
-                raise serializers.ValidationError(
-                    {
-                        "date_range": "The selected date range only contains weekends or public holidays. No leave days are required."
-                    }
-                )
-
-            if requested_days > leave_policy.max_days:
-                raise serializers.ValidationError(
-                    {
-                        "date_range": f"You requested {requested_days} working days, but the maximum allowed for {leave_policy.name} is {leave_policy.max_days} days."
-                    }
-                )
-
-        # 3. Document Requirement Logic
-        document = data.get("supporting_document")
-        if leave_policy:
-            # Check if the dynamic policy name contains 'SICK' or 'STUDY' (case-insensitive)
-            policy_name = leave_policy.name.upper()
-            requires_document = "SICK" in policy_name or "STUDY" in policy_name
-
-            if requires_document and not document:
-                raise serializers.ValidationError(
-                    {
-                        "supporting_document": [
-                            f"{leave_policy.name} requires a supporting document."
-                        ]
-                    }
-                )
-
-        logger.info(
-            "Leave validation successful for type=%s start=%s end=%s",
-            getattr(leave_policy, "name", None),
-            start_date,
-            end_date,
-        )
-        return data
-
-    def validate_status(self, value):
-        """Normalize status to uppercase to handle case-insensitive input."""
-        if value:
-            value = value.upper()
-        return value
-
-    def to_representation(self, instance):
-        """Inject human-readable policy details into the JSON response."""
-        representation = super().to_representation(instance)
-        if instance.leave_type:
-            representation["leave_type_name"] = instance.leave_type.name
-            representation["leave_type_max_days"] = instance.leave_type.max_days
-        return representation
-
-
-class RegistrationSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(
-        write_only=True, required=True, style={"input_type": "password"}, min_length=8
-    )
+# Serializer for Employee model
+class EmployeeSerializer(serializers.ModelSerializer):
+    leave_count = serializers.SerializerMethodField()
+    institution_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
         fields = [
+            "id",
+            "email",
             "first_name",
             "last_name",
+            "department",
+            "position",
+            "role",
+            "institution",
+            "institution_name",
+            "leave_count",
+            "must_reset_password",
+            "is_active",
+        ]
+
+    def get_institution_name(self, obj):
+        return obj.institution.name if obj.institution else None
+    
+    def get_leave_count(self, obj):
+        return obj.leaves.count()
+        
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
+    
+
+class EmployeeCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Employee
+        fields = [
+            "id",
             "email",
-            "employee_department",
-            "employee_position",
+            "first_name",
+            "last_name",
+            "department",
+            "position",
+            "role",
+            "institution",
             "phone_number",
-            "employee_role",
-            "password",
         ]
         extra_kwargs = {
             "password": {"write_only": True},
-            "employee_role": {"read_only": True},
         }
 
     def create(self, validated_data):
-        """Create a new employee instance with the provided validated data."""
-        password = validated_data.pop("password")
-
-        if "username" not in validated_data or not validated_data.get("username"):
-            base_username = (validated_data.get("email") or "").split("@")[0] or "user"
-            username = base_username
-            suffix = 1
-            while Employee.objects.filter(username=username).exists():
-                username = f"{base_username}{suffix}"
-                suffix += 1
-            validated_data["username"] = username
-
-        logger.info(
-            "Creating employee account for email=%s department=%s position=%s role=%s",
-            validated_data.get("email"),
-            validated_data.get("employee_department"),
-            validated_data.get("employee_position"),
-            validated_data.get("employee_role"),
-        )
-
-        employee = Employee(**validated_data)
-        employee.set_password(password)  # Hash the password before saving
+        password = validated_data.pop("password", None)
+        employee = Employee(**validated_data) 
+        employee.set_unusable_password()
+        employee.must_reset_password = True
         employee.save()
-        logger.info(
-            "Employee created with id=%s username=%s", employee.id, employee.username
-        )
+
+        send_welcome_email(employee)
+        logger.info(f"Created new employee: {employee.email} and sent welcome email.")
+
         return employee
 
 
-class UpdatePasswordSerializer(serializers.Serializer):
-    old_password = serializers.CharField(
-        write_only=True, required=True, style={"input_type": "password"}
-    )
-    new_password = serializers.CharField(
-        write_only=True, required=True, style={"input_type": "password"}, min_length=8
-    )
+class EmployeeUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Employee
+        fields = [
+            "email",
+            "first_name",
+            "last_name",
+            "department",
+            "position",
+            "role",
+            "institution",
+            "phone_number",
+            "must_reset_password",
+            "is_active",
+        ]
 
-
-class PasswordResetRequestSerializer(serializers.Serializer):
-    """Serializer used to request a password reset email."""
-
-    email = serializers.EmailField()
-    redirect_url = serializers.URLField(
-        required=False,
-        help_text="The URL of the frontend page where the user will reset their password. e.g., http://localhost:3000/reset-password",
-    )
-
-
-class PasswordResetConfirmSerializer(serializers.Serializer):
-    """Serializer used to confirm a password reset with a token."""
-
+class SetPasswordSerializer(serializers.Serializer):
+    """Serializer for allowing users to set a new password after receiving a reset link."""
     uid = serializers.CharField()
     token = serializers.CharField()
-    new_password = serializers.CharField(
-        write_only=True, required=True, style={"input_type": "password"}, min_length=8
-    )
+    new_password = serializers.CharField(min_length=8,write_only=True, required=True)
+    confirm_password = serializers.CharField(min_length=8, write_only=True, required=True)
+    
+
+    def validate_password(self, value):
+        if value['new_password'] != value['confirm_password']:
+            raise serializers.ValidationError("Passwords do not match.")
+        if len(value['new_password']) < 8:
+            raise serializers.ValidationError("Password must be at least 8 characters long.")
+
+        try:
+            uid = force_str(urlsafe_base64_decode(value['uid']))
+            employee = Employee.objects.get(pk=uid)
+        except(Employee.DoesNotExist, ValueError, TypeError, OverflowError):
+            raise serializers.ValidationError({"uid": "Invalid user."})
+        
+        if not default_token_generator.check_token(employee, value['token']):
+            raise serializers.ValidationError({"token": "Reset link is invalid or has expired."})
+        
+        value['employee'] = employee
+        return value
+    
+    def save(self):
+        employee = self.validated_data["employee"]
+        employee.set_password(self.validated_data["new_password"])
+        employee.must_reset_password = False
+        employee.save()
+        logger.info(f"User {employee.email} has reset their password.")
+
+        return employee
 
 
-class InitializeSerializer(serializers.Serializer):
-    """Simple serializer for the system initialization endpoint."""
+# Login Serializer
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
 
-    pass
-
-
-class EmployeeLoginSerializer(serializers.ModelSerializer):
-    """Serializer to return employee user data during login."""
+class LeaveTypeSerializer(serializers.ModelSerializer):
+    leave_count = serializers.SerializerMethodField()
 
     class Meta:
-        model = Employee
-        fields = [
-            "id",
-            "email",
-            "first_name",
-            "last_name",
-            "employee_department",
-            "employee_position",
-            "phone_number",
-            "employee_role",
-        ]
+        model = LeaveType
+        fields = ["id", "name", "description", "leave_count"]
+    
+    def get_leave_count(self, obj):
+        return obj.leaves.count()
+    
+    def  validate_max_days(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Max days must be a positive integer.")
+        return value
 
-
-class EmployeeListSerializer(serializers.ModelSerializer):
-    """Serializer for listing all employees with their complete information."""
-
-    full_name = serializers.SerializerMethodField()
+class LeaveSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source="employee.get_full_name", read_only=True)
+    leave_type_name = serializers.CharField(source="leave_type.name", read_only=True)
+    institution_name = serializers.CharField(source="employee.institution.name", read_only=True)
+    leave_duration = serializers.SerializerMethodField()
 
     class Meta:
-        model = Employee
+        model = Leave
         fields = [
             "id",
-            "email",
-            "username",
-            "full_name",
-            "first_name",
-            "last_name",
-            "employee_department",
-            "employee_position",
-            "phone_number",
-            "employee_role",
-            "is_active",
-            "date_joined",
+            "employee",
+            "employee_name",
+            "leave_type",
+            "leave_type_name",
+            "institution_name",
+            "start_date",
+            "end_date",
+            "reason",
+            "status",
+            "admin_remarks",
         ]
-        read_only_fields = ["id", "username", "date_joined"]
 
-    def get_full_name(self, obj):
-        """Return the full name of the employee."""
-        return f"{obj.first_name} {obj.last_name}".strip()
+    def get_leave_duration(self, obj):
+        return calculate_working_days(obj.start_date, obj.end_date)
+    
+    def get_employee_name(self, obj):
+        full_name = obj.employee.first_name + " " + obj.employee.last_name
 
+        return full_name.strip() if full_name.strip() else obj.employee.email
 
-class CustomTokenObtainPairSerializer(serializers.Serializer):
-    """Custom serializer for token response with user data included."""
+    def get_leave_type_name(self, obj):
+        return obj.leave_type.name if obj.leave_type else None
 
-    access = serializers.CharField()
-    refresh = serializers.CharField()
-    user = EmployeeLoginSerializer()
+    def validate(self, data):
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        leave_type = data.get('leave_type')
+        document = data.get('document')
 
-    @classmethod
-    def get_token(cls, user):
-        """Generate tokens and include user data in response."""
-        from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+        if start_date and end_date:
+            if end_date < start_date:
+                raise serializers.ValidationError({
+                    "end_date": "end_date cannot be before start_date."
+                })
 
-        token_serializer = TokenObtainPairSerializer()
-        token_serializer.fields["email"] = serializers.EmailField()
-        token_serializer.fields["password"] = serializers.CharField()
+        if leave_type and not leave_type.is_active:
+            raise serializers.ValidationError({
+                "leave_type": f"'{leave_type.name}' is currently inactive."
+            })
 
-        return token_serializer
+        if leave_type and leave_type.requires_document and not document:
+            raise serializers.ValidationError({
+                "document": f"A document is required for '{leave_type.name}'."
+            })
 
+        if start_date and end_date and leave_type:
+            duration = (end_date - start_date).days + 1
+            if duration > leave_type.max_days:
+                raise serializers.ValidationError({
+                    "end_date": (
+                        f"Duration of {duration} days exceeds the maximum "
+                        f"of {leave_type.max_days} days for '{leave_type.name}'."
+                    )
+                })
 
-class LeaveStatisticsSerializer(serializers.Serializer):
-    """Serializer for leave statistics."""
+        return data
 
-    total_leaves = serializers.IntegerField()
-    pending_leaves = serializers.IntegerField()
-    approved_leaves = serializers.IntegerField()
-    rejected_leaves = serializers.IntegerField()
-    average_duration = serializers.FloatField()
-    leave_types_breakdown = serializers.DictField()
-    status_breakdown = serializers.DictField()
+class LeaveStatusUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Leave
+        fields = ["status", "admin_remarks"]
+
+    def validate_status(self, value):
+        if value not in Leave.Status.values:
+            raise serializers.ValidationError("Invalid status value.")
+        return value 

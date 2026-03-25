@@ -24,7 +24,7 @@ class LeaveAdmin(admin.ModelAdmin):
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
     # This controls what columns show up in the table
-    list_display = ("email", "employee_department", "employee_position", "employee_role")
+    list_display = ("email", "department", "position", "role")
     
     # 1. Register your custom actions here
     actions = ["make_hr", "make_staff", "make_manager"]
@@ -32,15 +32,15 @@ class EmployeeAdmin(admin.ModelAdmin):
     # 2. Define the first action
     @admin.action(description="Update role to HR")
     def make_hr(self, request, queryset):
-        queryset.update(employee_role="Human Resources")
+        queryset.update(role="HR")
         self.message_user(request, f"Successfully updated {queryset.count()} employee(s) to HR.")
     # 3. Define the second action
     @admin.action(description="Update role to Staff")
     def make_staff(self, request, queryset):
-        updated_count = queryset.update(employee_role="STAFF")
+        updated_count = queryset.update(role="STAFF")
         self.message_user(request, f"Successfully updated {updated_count} employee(s) to Staff.")
     # 4. Define the third action
     @admin.action(description="Update role to Manager")
     def make_manager(self, request, queryset):
-        updated_count = queryset.update(employee_role="MANAGER")
+        updated_count = queryset.update(role="MANAGER")
         self.message_user(request, f"Successfully updated {updated_count} employee(s) to Manager.")
