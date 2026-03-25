@@ -11,12 +11,14 @@ class IsAdminRole(BasePermission):
 class IsAdminOrHR(BasePermission):
     """Employees with ADMIN or HR role."""
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role in [
-            Employee.Role.ADMIN,
-            Employee.Role.HR,
-            Employee.Role.MANAGER,
-        ]
+        user = request.user
 
+        if not user.is_authenticated:
+            return False
+        
+        role = getattr(user, 'role', None)
+        
+        return role in ['ADMIN', 'HR', 'MANAGER']
 
 class IsAdminOrHROfSameInstitutionAndDepartment(BasePermission):
     """
@@ -24,11 +26,11 @@ class IsAdminOrHROfSameInstitutionAndDepartment(BasePermission):
     and leave requests from their own institution and department.
     """
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role in [
-            Employee.Role.ADMIN,
-            Employee.Role.HR,
-            Employee.Role.MANAGER,
-        ]
+        user = request.user
+        if not user.is_authenticated:
+            return False
+        role = getattr(user, 'role', None)
+        return role in ['ADMIN', 'HR', 'MANAGER']
 
     def has_object_permission(self, request, view, obj):
         """

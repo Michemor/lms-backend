@@ -347,7 +347,7 @@ class LeaveViewSet(viewsets.ModelViewSet):
         
         return Leave.objects.select_related("employee", "leave_type").filter(employee=user)
     
-    def perform__create(self, serializer):
+    def perform_create(self, serializer):
         """ Create leave for an employee"""
 
         serializer.save(employee=self.request.user)

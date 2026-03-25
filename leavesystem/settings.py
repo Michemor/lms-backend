@@ -174,27 +174,17 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 
 
-# Logging configuration to trace user activity and API calls
 LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
         },
     },
-    # Root logger (all loggers without an explicit config)
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO",
-    },
-    # App-specific logger for the leaves app where most business logic lives
-    "loggers": {
-        "leaves": {
-            "handlers": ["console"],
-            "level": "DEBUG",
-            "propagate": False,
-        },
+    'root': {
+        'handlers': ['console'],
+        'level': 'DEBUG',
     },
 }
 

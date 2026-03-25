@@ -149,19 +149,10 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
-    leave_count = serializers.SerializerMethodField()
 
     class Meta:
         model = LeaveType
-        fields = ["id", "name", "description", "leave_count"]
-    
-    def get_leave_count(self, obj):
-        return obj.leaves.count()
-    
-    def  validate_max_days(self, value):
-        if value is not None and value <= 0:
-            raise serializers.ValidationError("Max days must be a positive integer.")
-        return value
+        fields = ["id", "name", "max_days", "is_active"]
 
 class LeaveSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source="employee.get_full_name", read_only=True)
