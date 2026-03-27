@@ -294,6 +294,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     queryset = Employee.objects.select_related("institution").all()
     permission_classes = [IsAuthenticated, IsAdminOrHROfSameInstitutionAndDepartment]
     filter_backends = [filters.SearchFilter]
+    lookup_field = 'uuid'
     search_fields = [
         "email",
         "first_name",
@@ -392,7 +393,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], url_path="resend-welcome-email")
     def resend_email(self, request, pk=None):
         """Resend welcome email with password reset link to the employee."""
         employee = self.get_object()

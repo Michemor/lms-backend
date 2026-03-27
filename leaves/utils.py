@@ -5,7 +5,6 @@ import datetime
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
-from django.core.mail import send_mail
 from leavesystem import settings
 from django.core.mail import EmailMultiAlternatives
 from django.core.cache import cache
@@ -37,21 +36,21 @@ def generate_password_set_link(employee):
     reset_link = f"{frontend_url}/set-password/{uid}/{token}/"
     return reset_link
 
-def send_email(to: str, subject: str, html_body: str) -> bool:
+def send_email(employee, subject, html_body) -> bool:
     """Send a email to the new employee."""
     try:
         msg = EmailMultiAlternatives(
             subject = subject,
             body = "This is a fallback text version",
             from_email = settings.DEFAULT_FROM_EMAIL,
-            to = [to]
+            to = [employee.email]
         )
         msg.attach_alternative(html_body, "text/html")
         msg.send()
-        logger.info(f"Email sent successfully to {to}.")
+        logger.info(f"Email sent successfully to {employee.email}.")
         return True
     except Exception as e:
-        logger.error(f"Failed to send email to {to}: {str(e)}")
+        logger.error(f"Failed to send email to {employee.email}: {str(e)}")
         return False
 
 def send_otp_email(employee) -> bool:
@@ -63,7 +62,7 @@ def send_otp_email(employee) -> bool:
         <p>This OTP will expire in 10 minutes. If you did not request a password reset, please ignore this email.</p>
         <p>Best regards,<br>Team Impact University</p>
     """
-    return send_email(employee.email, "Password Reset OTP", html_body)
+    return send_email(employee, "Password Reset OTP", html_body)
 
 
 def generate_otp(employee):
@@ -92,7 +91,7 @@ def send_login_otp_email(employee) -> bool:
         <p>This OTP will expire in 10 minutes. If you did not attempt to log in, please secure your account immediately.</p>
         <p>Best regards,<br>Team Impact University</p>
     """
-    return send_email(employee.email, "Login Verification OTP", html_body)
+    return send_email(employee, "Login Verification OTP", html_body)
 
 def send_password_reset_email(employee, reset_link):
     """Send a password reset email to the employee."""
@@ -113,4 +112,4 @@ def send_password_reset_email(employee, reset_link):
         \n Team Impact University.
 
         """
-    send_email(employee.email, subject, message)
+    send_email(employee, subject, message)
