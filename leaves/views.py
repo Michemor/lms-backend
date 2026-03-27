@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.exceptions import APIException
 from django.contrib.auth import authenticate
 from django.shortcuts import get_object_or_404
+import traceback
 from django.db import transaction
 from .models import Institution, Employee, LeaveType, Leave
 from .serializers import (
@@ -20,7 +21,7 @@ from .serializers import (
     LeaveStatusUpdateSerializer,
     SetPasswordSerializer,
 )
-from .utils import calculate_working_days, send_welcome_email, send_password_reset_email
+from .utils import calculate_working_days, send_email, send_password_reset_email
 import logging
 from .permissions import (
     IsAdminRole,
@@ -76,7 +77,7 @@ class LoginView(APIView):
 
 class SetPassword(APIView):
     """
-    Called when employee clicks the reset link in their email.
+    Called when employee clicks the set link in their email.
     Validates uid and token, then sets the new password.
     """
 
@@ -87,10 +88,10 @@ class SetPassword(APIView):
         serializer.is_valid(raise_exception=True)
 
         employee = serializer.save()
-        logger.info(f"Employee {employee.email} has reset their password successfully.")
+        logger.info(f"Employee {employee.email} has set their password successfully.")
 
         return Response(
-            {"message": "Password has been reset successfully."},
+            {"message": "Password has been set successfully."},
             status=status.HTTP_200_OK,
         )
 
@@ -105,15 +106,23 @@ class PasswordResetRequestView(APIView):
     def post(self, request):
         email = request.data.get("email")
 
+        if not email:
+            return Response(
+                {"error": "Email field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             employee = Employee.objects.get(email=email)
+            if not employee.is_active:
+                raise Employee.DoesNotExist 
         except Employee.DoesNotExist:
             # Don't reveal if email exists or not (security best practice)
             return Response(
                 {
                     "message": "If an account exists with this email, you will receive a password reset link."
                 },
-                status=status.HTTP_200_OK,
+                status=200,
             )
 
         if not employee.is_active:
@@ -123,20 +132,13 @@ class PasswordResetRequestView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
-
-        # Generate reset token
-        from django.contrib.auth.tokens import default_token_generator
-        from django.utils.http import urlsafe_base64_encode
-        from django.utils.encoding import force_bytes
-
-        uid = urlsafe_base64_encode(force_bytes(employee.pk))
-        token = default_token_generator.make_token(employee)
-
-        # Send password reset email
-        reset_link = f"{request.META.get('HTTP_ORIGIN', 'http://localhost:5173')}/reset-password/{uid}/{token}"
-
         try:
-            send_password_reset_email(employee, reset_link)
+            # Generate reset token
+            from leaves.utils import generate_password_set_link, send_email
+            # Send password reset email
+            set_link = generate_password_set_link(employee)
+            send_email(employee.email, "Password Reset Request", f"Please click the following link to set your password: {set_link}")
+
             logger.info(f"Password reset email sent to {employee.email}")
         except Exception as e:
             logger.error(
@@ -319,15 +321,17 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            send_welcome_email(employee)
+            logger.info("Attempting to send welcome email...")
+            send_email(employee)
             logger.info(f"Welcome email sent to new employee: {employee.email}")
         except Exception as e:
-            logger.error(f"Failed to send welcome email to {employee.email}: {e}")
+            logger.error(f"Failed to send welcome email to {employee.email}: {str(e)}\n{traceback.format_exc()}")
 
         headers = self.get_success_headers(serializer.data)
         return Response(
             serializer.data, status=status.HTTP_201_CREATED, headers=headers
         )
+
 
     def destroy(self, request, *args, **kwargs):
         """Override destroy to perform a soft delete by setting is_active to False."""
@@ -361,7 +365,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=["post"])
-    def resend_welcome_email(self, request, pk=None):
+    def resend_email(self, request, pk=None):
         """Resend welcome email with password reset link to the employee."""
         employee = self.get_object()
         if not employee.is_active:
@@ -370,11 +374,11 @@ class EmployeeViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            send_welcome_email(employee)
+            send_email(employee)
             logger.info(f"Resent welcome email to employee: {employee.email}.")
         except Exception as e:
             logger.error(
-                f"Failed to resend welcome email to employee {employee.email}: {e}"
+                f"Failed to resend welcome email to employee {employee.email}: {str(e)}\n{traceback.format_exc()}"
             )
             raise APIException(
                 "Failed to resend welcome email. Please try again later."

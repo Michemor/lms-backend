@@ -1,11 +1,17 @@
 """Utility functions for leave management system."""
+from random import random
+import logging
 import datetime
-from django.core.mail import send_mail
-from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
-from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
+from django.core.mail import send_mail
+from leavesystem import settings
+from django.core.mail import EmailMultiAlternatives
+from django.core.cache import cache
+import secrets
 
+logger = logging.getLogger(__name__)
 
 
 def calculate_working_days(start_date, end_date):
@@ -27,35 +33,66 @@ def generate_password_set_link(employee):
     """Generate a password set link for the given user."""
     token = default_token_generator.make_token(employee)
     uid = urlsafe_base64_encode(force_bytes(employee.pk))
-    frontend_url = getattr(settings, "FRONTEND_URL", "https://lms-frontend.vercel.app")
+    frontend_url = settings.FRONTEND_URL
     reset_link = f"{frontend_url}/set-password/{uid}/{token}/"
     return reset_link
 
-def send_welcome_email(employee):
-    """Send a welcome email to the new employee with instructions to set their password."""
-    subject = "Welcome to the Leave Management System!"
-    message = f"""\
-        Hi {employee.first_name},
-        
-        \n\nWelcome to the Leave Management System! Your account has been created successfully.
-        
-        Please click the following link to set your password and access your account:
-        \n\n{generate_password_set_link(employee)}\n\n
-
-        If you have any questions or need assistance, please contact your administrator.
-
-        
-        Best regards,
-        \n Team Impact University.
-
-        """
-    send_mail(
-        subject, 
-        message, 
-        settings.DEFAULT_FROM_EMAIL, 
-        [employee.email],
-        fail_silently=False
+def send_email(to: str, subject: str, html_body: str) -> bool:
+    """Send a email to the new employee."""
+    try:
+        msg = EmailMultiAlternatives(
+            subject = subject,
+            body = "This is a fallback text version",
+            from_email = settings.DEFAULT_FROM_EMAIL,
+            to = [to]
         )
+        msg.attach_alternative(html_body, "text/html")
+        msg.send()
+        logger.info(f"Email sent successfully to {to}.")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send email to {to}: {str(e)}")
+        return False
+
+def send_otp_email(employee) -> bool:
+    """Send an OTP email to the employee for password reset."""
+    otp = generate_otp(employee)
+    html_body = f"""
+        <p>Hi {employee.first_name},</p>
+        <p>Your OTP for password reset is: <strong>{otp}</strong></p>
+        <p>This OTP will expire in 10 minutes. If you did not request a password reset, please ignore this email.</p>
+        <p>Best regards,<br>Team Impact University</p>
+    """
+    return send_email(employee.email, "Password Reset OTP", html_body)
+
+
+def generate_otp(employee):
+    """Generate and cache an OTP for the given employee."""
+    otp = secrets.randbelow(900000) + 100000
+    cache_key = f"otp_{employee.pk}"
+    cache.set(cache_key, otp, timeout=600)  # Cache OTP for 10 minutes
+    return otp
+
+def verify_otp(employee, otp):
+    """Verify the provided OTP against the cached value."""
+    cache_key = f"otp_{employee.pk}"
+    cached_otp = cache.get(cache_key)
+    if cached_otp and str(cached_otp) == str(otp):
+        cache.delete(cache_key)  # Invalidate OTP after successful verification
+        return True
+    return False
+
+
+def send_login_otp_email(employee) -> bool:
+    """Send an OTP email to the employee for login verification."""
+    otp = random.randint(100000, 999999)
+    html_body = f"""
+        <p>Hi {employee.first_name},</p>
+        <p>Your OTP for login verification is: <strong>{otp}</strong></p>
+        <p>This OTP will expire in 10 minutes. If you did not attempt to log in, please secure your account immediately.</p>
+        <p>Best regards,<br>Team Impact University</p>
+    """
+    return send_email(employee.email, "Login Verification OTP", html_body)
 
 def send_password_reset_email(employee, reset_link):
     """Send a password reset email to the employee."""
@@ -76,10 +113,4 @@ def send_password_reset_email(employee, reset_link):
         \n Team Impact University.
 
         """
-    send_mail(
-        subject, 
-        message, 
-        settings.DEFAULT_FROM_EMAIL, 
-        [employee.email],
-        fail_silently=False
-        )
+    send_email(employee.email, subject, message)

@@ -2,7 +2,7 @@ import logging
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import Employee
-from .utils import send_welcome_email
+from .utils import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ def trigger_welcome_email(sender, instance, created, **kwargs):
     """
     if created and not instance.password:
         try:
-            send_welcome_email(instance)
+            send_email(instance)
             logger.info(
                 f"Welcome email sent from post_save signal to {instance.email}."
             )

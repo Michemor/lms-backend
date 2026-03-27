@@ -1,7 +1,7 @@
 import logging
 from datetime import date
 from .models import Leave, Employee, LeaveType, Institution
-from .utils import calculate_working_days, send_welcome_email
+from .utils import calculate_working_days, send_email
 from rest_framework import serializers
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_decode
