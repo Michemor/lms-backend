@@ -33,9 +33,9 @@ SECRET_KEY = config("SECRET_KEY")
 
 # Configure allowed hosts - includes common development and deployment domains
 ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    'lms-backend-658v.onrender.com',
+    "localhost",
+    "127.0.0.1",
+    "lms-backend-658v.onrender.com",
 ]
 
 
@@ -53,10 +53,28 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "corsheaders",
     "drf_spectacular",
+    "anymail",
+    "storages",
+    "whitenoise.runserver_nostatic",
     # Local apps
     "leaves",
     "leavesystem",
 ]
+
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+AWS_STORAGE_BUCKET_NAME = "leave-documents" # The bucket name you created
+AWS_S3_ENDPOINT_URL = os.getenv("AWS_S3_ENDPOINT_URL")  # e.g., "https://s3.amazonaws.com" or your S3-compatible endpoint
+AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME")  # e.g., "us-east-1"
+
+STORAGES = {
+    "default":{
+        "BACKEND": "storages.backends.s3.S3Storage",
+    },
+    "staticfiles":{
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    }
+}
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
@@ -77,7 +95,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",  # React development server
     "http://localhost:5175",  # React development server
     "https://lms-frontend-nine-gules.vercel.app",
-    "https://tci-universityleavesystem.vercel.app/",  # Deployed frontend URL
+    "https://tci-universityleavesystem.vercel.app",  # Deployed frontend URL
 ]
 CORS_ALLOW_ALL_ORIGINS = False
 CSRF_TRUSTED_ORIGINS = os.environ.get("CSRF_TRUSTED_ORIGINS").split(",")
@@ -204,12 +222,13 @@ LOGGING = {
 }
 
 # Email configuration (console backend for development)
-EMAIL_BACKEND = os.getenv(
-    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
-)
-EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND")
+EMAIL_HOST = os.getenv("EMAIL_HOST")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
+ANYMAIL = {
+    "RESEND_API_KEY": os.getenv("RESEND_API_KEY"),
+}

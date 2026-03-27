@@ -41,6 +41,11 @@ class IsAdminOrHROfSameInstitutionAndDepartment(BasePermission):
         Check if the admin/HR/manager has access to the object based on institution and department.
         Works for both Employee and Leave objects.
         """
+        user = request.user
+
+        if getattr(user, "role", None) == "ADMIN":
+            return True  # Admins have access to all objects
+        
         # Get the institution and department of the requester
         requester_institution = request.user.institution
         requester_department = request.user.department

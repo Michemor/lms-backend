@@ -1,12 +1,10 @@
 import logging
-from datetime import date
 from .models import Leave, Employee, LeaveType, Institution
-from .utils import calculate_working_days, send_email
+from .utils import calculate_working_days
 from rest_framework import serializers
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
-from django.utils import timezone
 from django.utils.crypto import get_random_string
 
 logger = logging.getLogger(__name__)
@@ -80,18 +78,17 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """Create employee with a generated password and set must_reset_password flag."""
         # Generate a random secure password (12 characters)
-        password = get_random_string(
+        generated_password = get_random_string(
             length=12,
             allowed_chars="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()",
         )
-
         # Create the employee with the generated password
-        employee = Employee.objects.create_user(**validated_data, password=password)
-
+        employee = Employee.objects.create_user(**validated_data, password=generated_password)
         # Set must_reset_password flag after creation
         employee.must_reset_password = True
+        # Store the plain text password for email
+        employee.temporary_password = generated_password  # Store the plain text password for email
         employee.save()
-
         return employee
 
 
@@ -173,6 +170,7 @@ class PostLoginPasswordSerializer(serializers.Serializer):
         employee.save()
         return employee
 
+
 class LeaveTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
@@ -181,13 +179,10 @@ class LeaveTypeSerializer(serializers.ModelSerializer):
 
 
 class LeaveSerializer(serializers.ModelSerializer):
-    employee_name = serializers.CharField(
-        source="employee.get_full_name", read_only=True
-    )
-    leave_type_name = serializers.CharField(source="leave_type.name", read_only=True)
-    institution_name = serializers.CharField(
-        source="employee.institution.name", read_only=True
-    )
+    employee = serializers.PrimaryKeyRelatedField(read_only=True)
+    employee_name = serializers.SerializerMethodField()
+    leave_type_name = serializers.ReadOnlyField(source="leave_type.name", read_only=True)
+    institution_name = serializers.SerializerMethodField()
     leave_duration = serializers.SerializerMethodField()
 
     class Meta:
@@ -204,24 +199,32 @@ class LeaveSerializer(serializers.ModelSerializer):
             "reason",
             "status",
             "admin_remarks",
+            "supporting_document",
+            "leave_duration",
         ]
 
     def get_leave_duration(self, obj):
         return calculate_working_days(obj.start_date, obj.end_date)
 
     def get_employee_name(self, obj):
-        full_name = obj.employee.first_name + " " + obj.employee.last_name
-
-        return full_name.strip() if full_name.strip() else obj.employee.email
+        if obj.employee:
+            full_name = f"{obj.employee.first_name} {obj.employee.last_name}".strip()
+            return full_name if full_name else obj.employee.email
+        return None
 
     def get_leave_type_name(self, obj):
         return obj.leave_type.name if obj.leave_type else None
+    
+    def get_institution_name(self, obj):
+        if obj.employee and obj.employee.institution:
+            return obj.employee.institution.name
+        return None
 
     def validate(self, data):
         start_date = data.get("start_date")
         end_date = data.get("end_date")
         leave_type = data.get("leave_type")
-        document = data.get("document")
+        supporting_document = data.get("supporting_document")
 
         if start_date and end_date:
             if end_date < start_date:
@@ -232,11 +235,6 @@ class LeaveSerializer(serializers.ModelSerializer):
         if leave_type and not leave_type.is_active:
             raise serializers.ValidationError(
                 {"leave_type": f"'{leave_type.name}' is currently inactive."}
-            )
-
-        if leave_type and leave_type.requires_document and not document:
-            raise serializers.ValidationError(
-                {"document": f"A document is required for '{leave_type.name}'."}
             )
 
         if start_date and end_date and leave_type:
@@ -250,6 +248,11 @@ class LeaveSerializer(serializers.ModelSerializer):
                         )
                     }
                 )
+
+        if not supporting_document and leave_type and leave_type.name.lower() in ["sick leave", "study leave"]:
+            raise serializers.ValidationError(
+                {"supporting_document": "This field is required."}
+            )
 
         return data
 
