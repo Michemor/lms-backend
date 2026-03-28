@@ -1,5 +1,6 @@
 # filters.py
 from rest_framework import filters
+from django.core.exceptions import FieldError
 
 class RoleBasedAccessFilter(filters.BaseFilterBackend):
     """
@@ -10,7 +11,14 @@ class RoleBasedAccessFilter(filters.BaseFilterBackend):
     def filter_queryset(self, request, queryset, view):
         user = request.user
 
-        queryset = queryset.filter(is_deleted=False) 
+        # Check first if the is_deleted attribute exists and filter out deleted records
+        try:
+            if hasattr(queryset.model, 'is_deleted'):
+                queryset = queryset.filter(is_deleted=False)
+            elif hasattr(queryset.model, 'employee'):
+                queryset = queryset.filter(employee__is_deleted=False)
+        except FieldError:
+            pass
         
         # Bypass filtering if the user isn't authenticated
         if not user or not user.is_authenticated:

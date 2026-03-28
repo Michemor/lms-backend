@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.exceptions import APIException
 from rest_framework.pagination import PageNumberPagination
+from django_filters.rest_framework import DjangoFilterBackend
 from django.contrib.auth import authenticate
 from django.utils import timezone
 import datetime
@@ -256,7 +257,14 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated] 
     
     # 1. ADD THE CENTRALIZED FILTER HERE
-    filter_backends = [filters.SearchFilter, RoleBasedAccessFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, RoleBasedAccessFilter]
+    filterset_fields = {
+        'department': ['exact', 'icontains'],
+        'position': ['exact', 'icontains'],
+        'role': ['exact'],
+        'institution': ['exact'],
+        'is_active': ['exact'],
+        }
     search_fields = [
         "email",
         "first_name",
@@ -426,8 +434,8 @@ class LeaveViewSet(viewsets.ModelViewSet):
     serializer_class = LeaveSerializer
     permission_classes = [IsAuthenticated]
     
-    # 1. ADD THE CENTRALIZED FILTER HERE
-    filter_backends = [filters.SearchFilter, RoleBasedAccessFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, RoleBasedAccessFilter]
+    filterset_fields = ['employee', 'status', 'leave_type']
     search_fields = [
         "leave_type__name",
         "status",
@@ -560,29 +568,55 @@ class LeaveViewSet(viewsets.ModelViewSet):
         serializer = LeaveSerializer(employee_leaves, many=True)
         return Response(serializer.data)
 
-    @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated])
-    def statistics(self, request):
-        # Securely grabs the user's specific allowed slice of the database
-        queryset = self.filter_queryset(self.get_queryset())
 
-        total_leaves = queryset.count()
-        approved_leaves = queryset.filter(status=Leave.Status.APPROVED).count()
-        rejected_leaves = queryset.filter(status=Leave.Status.REJECTED).count()
-        pending_leaves = queryset.filter(status=Leave.Status.PENDING).count()
-        cancelled_leaves = queryset.filter(status=Leave.Status.CANCELLED).count()
+    @action(detail=False, methods=["get"])
+    def reports(self, request):
+        """
+        Get secured statistics.
+        """
+        try:
+            queryset = self.filter_queryset(self.get_queryset())
+            summary = {
+                "total_applications": queryset.count(),
+                "approved": queryset.filter(status=Leave.Status.APPROVED).count(),
+                "pending": queryset.filter(status=Leave.Status.PENDING).count(),
+                "rejected": queryset.filter(status=Leave.Status.REJECTED).count(),
+            }
+            return Response(summary, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+    
+    @action(detail=False, methods=["get"], url_path="department-reports")
+    def departmental_reports(self, request):
+        """
+        Get leave statistics grouped by department, securely filtered by the user's role and institution.
+        """
+        try:
+            queryset = self.filter_queryset(self.get_queryset())
+            detailed_report = {}
 
-        statistics = {
-            "total_leaves": total_leaves,
-            "approved_leaves": approved_leaves,
-            "rejected_leaves": rejected_leaves,
-            "pending_leaves": pending_leaves,
-            "cancelled_leaves": cancelled_leaves,
-            "status_breakdown": {
-                "APPROVED": approved_leaves,
-                "REJECTED": rejected_leaves,
-                "PENDING": pending_leaves,
-                "CANCELLED": cancelled_leaves,
-            },
-        }
+            for leave in queryset.select_related('employee__institution', 'employee'):
+                inst_name = leave.employee.institution.name if leave.employee.institution else 'No Institution'
+                dept_name = leave.employee.department or 'General'
 
-        return Response({"statistics": statistics}, status=status.HTTP_200_OK)
+                if inst_name not in detailed_report:
+                   detailed_report[inst_name] = {}
+
+                if dept_name not in detailed_report[inst_name]:
+                    detailed_report[inst_name][dept_name] = []
+                
+                detailed_report[inst_name][dept_name].append({
+                    "employee": {
+                        "id": leave.employee.id,
+                        "first_name": leave.employee.first_name,
+                        "last_name": leave.employee.last_name
+                    },
+                    "leave_type": leave.leave_type.name,
+                    "status": leave.status,
+                    "start_date": leave.start_date,
+                    "end_date": leave.end_date,
+                    "duration": calculate_working_days(leave.start_date, leave.end_date),
+                })
+            return Response(detailed_report, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
