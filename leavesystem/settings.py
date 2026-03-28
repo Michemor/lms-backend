@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "anymail",
     "storages",
     "whitenoise.runserver_nostatic",
+    "django_filters",
     # Local apps
     "leaves",
     "leavesystem",
