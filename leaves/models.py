@@ -165,6 +165,9 @@ class Leave(models.Model):
     )
     admin_remarks = models.TextField(blank=True, null=True)
 
+    
+
+    extra_unpaid_days = models.IntegerField(default=0, help_text="Additional unpaid leave days granted to the employee")
     class Meta:
         ordering = ["-id"]
 

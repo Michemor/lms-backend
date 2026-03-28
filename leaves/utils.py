@@ -17,8 +17,8 @@ def calculate_working_days(start_date, end_date):
     working_days = 0
 
     if start_date > end_date:
-        raise ValueError("Start date cannot be after end date.")
         return 0
+        raise ValueError("Start date cannot be after end date.")
 
     current_date = start_date
     while current_date <= end_date:
@@ -26,6 +26,34 @@ def calculate_working_days(start_date, end_date):
             working_days += 1
         current_date += datetime.timedelta(days=1)
     return working_days
+
+
+def calculate_end_date_from_days(start_date, num_working_days):
+    """
+    Calculate the exact end date by adding a specific number of working days
+    to a start date, skipping weekends (Saturday and Sunday).
+    """
+    if num_working_days <= 0:
+        # If they have 0 balance, the paid portion technically ended yesterday.
+        return start_date - datetime.timedelta(days=1)
+
+    current_date = start_date
+    days_counted = 0
+
+    while True:
+        # Check if it's a weekday (Monday=0 ... Friday=4)
+        if current_date.weekday() < 5:
+            days_counted += 1
+            
+        # If we have consumed the available balance, this is the final paid day
+        if days_counted == num_working_days:
+            break
+            
+        # Otherwise, move to the next day
+        current_date += datetime.timedelta(days=1)
+
+    return current_date
+
 
 def send_account_creation_email(employee):
     """ Send an email to the employee when the account is created"""

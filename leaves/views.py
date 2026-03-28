@@ -458,7 +458,12 @@ class LeaveViewSet(viewsets.ModelViewSet):
     # (get_queryset is completely deleted because the filter backend handles it all!)
 
     def perform_create(self, serializer):
-        serializer.save(employee=self.request.user)
+        leave = serializer.save(employee=self.request.user)
+        requested_days = leave.duration
+
+        if requested_days > leave.leave_type.max_days:
+            leave.extra_unpaid_days = requested_days - leave.leave_type.max_days
+            leave.save(update_fields=["extra_unpaid_days"])
 
     def destroy(self, request, *args, **kwargs):
         leave = self.get_object()
