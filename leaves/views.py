@@ -319,9 +319,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         """Soft-delete: mark as deleted and deactivate. Never hard-delete."""
         employee = self.get_object()
-        employee.is_deleted = True
-        employee.is_active = False
-        employee.save(update_fields=["is_deleted", "is_active"])
+        employee.delete()
         return Response(
             {"message": "Employee record removed successfully."},
             status=status.HTTP_204_NO_CONTENT,
