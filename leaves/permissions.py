@@ -9,8 +9,9 @@ class IsAdminRole(BasePermission):
         return request.user.is_authenticated and request.user.role == "ADMIN"
 
 
-class IsAdminOrHR(BasePermission):
-    """Employees with ADMIN or HR role."""
+
+class IsAdminOrManager(BasePermission):
+    """Employees with ADMIN or MANAGER role."""
 
     def has_permission(self, request, view):
         user = request.user
@@ -20,7 +21,7 @@ class IsAdminOrHR(BasePermission):
 
         role = getattr(user, "role", None)
 
-        return role in ["ADMIN", "HR", "MANAGER"]
+        return role in ["ADMIN", "MANAGER"]
 
 
 class IsAdminOrHROfSameInstitutionAndDepartment(BasePermission):

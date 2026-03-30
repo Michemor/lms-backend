@@ -3,26 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Account Confirmation</title>
+    <title>Leave Approval Notification</title>
   </head>
   <body style="margin:0; padding:0; background:#f1f5f9; font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#0f172a;">
     <div style="max-width:600px; margin:40px auto; background:#ffffff; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); padding:20px;">
-      <h2 style="color:#1e293b;">Welcome to TCI University Leave Management System!</h2>
+      <h2 style="color:#1e293b;">Your Leave Request Has Been Approved!</h2>
       <p style="font-size:16px; line-height:1.5; color:#334155;">
-        Hi {{ user_name }}, <br />
+        Hi {{ full_name }}, <br />
 
-        Your account has been created successfully. To access your account, please use the link below: <br/>
-        Email: {{ email }} <br/>
-        Link: {{ link }} <br/>
-        <br />
-
-        Kindly keep this link secure and do not share it with anyone. You can change your password after logging in for the first time. <br/>
+        We are pleased to inform you that your leave request for the period of {{ leave_start_date }} to {{ leave_end_date }} has been approved by your manager. <br/>
+        Your leave type is {{ leave_type }} and the reason provided was "{{ leave_reason }}". <br/>
+        You can view the details of your approved leave in your account <a href="{{ dashboard_url }}">dashboard</a>. <br/>
       </p>
       <p style="font-size:14px; line-height:1.5; color:#64748b; margin-top:30px;">
-        If you did not create an account, please ignore this email.
+        If you have any questions or need further assistance, please do not hesitate to contact the HR department.
         Best regards, <br />
         TCI University Leave Management Team.
       </p>
     </div>
   </body>
-</html>

@@ -30,11 +30,17 @@ urlpatterns = [
     # =============================
     # AUTH ENDPOINTS
     # =============================
+
+    #=========== AUTH ===================
     path('auth/login/', LoginView.as_view(), name='auth-login'),
     path('auth/logout/', LogoutView.as_view(), name='auth-logout'),
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
+    path('auth/me/', MeView.as_view(), name='auth-me'),
+
+    #======= PASSWORD FLOWS ==============
+
     path('auth/password-reset/', PasswordResetRequestView.as_view(), name='auth-password-reset-request'),
     path('auth/set-password/', SetPassword.as_view(), name='auth-set-password'),
     path('auth/set-password-post-login/', PostLoginPasswordView.as_view(), name='auth-set-password-post-login'),
-    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
-    path('auth/me/', MeView.as_view(), name='auth-me'),
+   
 ]
